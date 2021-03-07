@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument('--method-label', type=str, default='vanilla')
 
     # PPO parameters.
-    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--gpu', type=int, default=0, help="If on cpu, set to -1")
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--ent-coef', type=float, default=0.01)
     parser.add_argument('--vf-coef', type=float, default=0.5)
@@ -47,6 +47,10 @@ def parse_args():
     parser.add_argument('--nepochs', type=int, default=3)
     parser.add_argument('--max-steps', type=int, default=25_000_000)
     parser.add_argument('--save-interval', type=int, default=100)
+
+    configs = parser.parse_args()
+    if configs.gpu == -1:
+        configs.gpu = None # run on CPU
 
     return parser.parse_args()
 
