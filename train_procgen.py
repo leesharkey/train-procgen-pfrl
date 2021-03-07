@@ -52,7 +52,7 @@ def parse_args():
     if configs.gpu == -1:
         configs.gpu = None # run on CPU
 
-    return parser.parse_args()
+    return configs
 
 
 def create_venv(config, is_valid=False):
