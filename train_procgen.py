@@ -11,7 +11,7 @@ from vec_env import VecMonitor
 from vec_env import VecNormalize
 from util import logger
 
-from policies import ImpalaCNN
+from policies import ImpalaCNN, CNNRecurrent
 from ppo import PPO
 
 
@@ -47,6 +47,8 @@ def parse_args():
     parser.add_argument('--nepochs', type=int, default=3)
     parser.add_argument('--max-steps', type=int, default=25_000_000)
     parser.add_argument('--save-interval', type=int, default=100)
+    parser.add_argument('--recurrent-policy', type=int, default=0)
+    parser.add_argument('--max_recr_seq_len', type=int, default=None)
 
     configs = parser.parse_args()
     if configs.gpu == -1:
@@ -77,7 +79,9 @@ def rollout_one_step(agent, env, obs, steps, env_max_steps=1000):
 
     # Step once.
     action = agent.batch_act(obs)
+
     new_obs, reward, done, infos = env.step(action)
+
     steps += 1
     reset = steps == env_max_steps
     steps[done] = 0
@@ -208,10 +212,16 @@ def run():
     valid_venv = create_venv(configs, is_valid=True)
 
     # Create policy.
-    policy = ImpalaCNN(
-        obs_space=train_venv.observation_space,
-        num_outputs=train_venv.action_space.n,
-    )
+    if configs.recurrent_policy:
+        policy = CNNRecurrent(
+            obs_space=train_venv.observation_space,
+            act_space=train_venv.action_space,
+        )
+    else:
+        policy = ImpalaCNN(
+            obs_space=train_venv.observation_space,
+            num_outputs=train_venv.action_space.n,
+        )
 
     # Create agent and train.
     optimizer = torch.optim.Adam(policy.parameters(), lr=configs.lr, eps=1e-5)
@@ -228,6 +238,8 @@ def run():
         epochs=configs.nepochs,
         clip_eps=configs.clip_range,
         clip_eps_vf=configs.clip_range,
+        recurrent=configs.recurrent_policy,
+        max_recurrent_sequence_len=configs.max_recr_seq_len,
         max_grad_norm=configs.max_grad_norm,
     )
     train(configs, ppo_agent, train_venv, valid_venv, log_dir)
