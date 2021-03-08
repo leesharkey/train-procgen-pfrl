@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
-
+import pfrl
+from pfrl import experiments, utils
+from pfrl.agents import PPO
+from pfrl.policies import SoftmaxCategoricalHead
 
 class ResidualBlock(nn.Module):
 
@@ -90,6 +93,97 @@ class ImpalaCNN(nn.Module):
         dist = torch.distributions.Categorical(logits=logits)
         value = self.value_fc(x)
         return dist, value
+
+    def save_to_file(self, model_path):
+        torch.save(self.state_dict(), model_path)
+
+    def load_from_file(self, model_path):
+        self.load_state_dict(torch.load(model_path))
+
+
+class CNNRecurrent(nn.Module):
+    """."""
+
+    def __init__(self, obs_space, act_space):
+
+        super(CNNRecurrent, self).__init__()
+        print("Observation space", obs_space)
+        print("Action space", act_space)
+        n_actions = act_space.n
+
+        def lecun_init(layer, gain=1):
+            if isinstance(layer, (nn.Conv2d, nn.Linear)):
+                pfrl.initializers.init_lecun_normal(layer.weight, gain)
+                nn.init.zeros_(layer.bias)
+            else:
+                pfrl.initializers.init_lecun_normal(layer.weight_ih_l0, gain)
+                pfrl.initializers.init_lecun_normal(layer.weight_hh_l0, gain)
+                nn.init.zeros_(layer.bias_ih_l0)
+                nn.init.zeros_(layer.bias_hh_l0)
+            return layer
+
+        self.feature_extractor = FeatureExtractorCNN(obs_space)
+
+        # The pfrl.nn.RecurrentSequential class below has a FF part and an RNN
+        # part. The class helps with passing observations to the FF part and
+        # dealing with recursive hidden states.
+        self.model = pfrl.nn.RecurrentSequential(
+            self.feature_extractor,
+            lecun_init(
+                nn.GRU(num_layers=1, input_size=512, hidden_size=512)),
+            pfrl.nn.Branched(
+                nn.Sequential(
+                    lecun_init(nn.Linear(512, n_actions), 1e-2),
+                    SoftmaxCategoricalHead(),
+                ),
+                lecun_init(nn.Linear(512, 1)),
+            ),
+        )
+
+    def forward(self, obs, recurrent_state):
+        return self.model(obs, recurrent_state)
+
+    def save_to_file(self, model_path):
+        torch.save(self.state_dict(), model_path)
+
+    def load_from_file(self, model_path):
+        self.load_state_dict(torch.load(model_path))
+
+class FeatureExtractorCNN(nn.Module):
+    """."""
+
+    def __init__(self, obs_space):
+
+        super(FeatureExtractorCNN, self).__init__()
+        obs_n_channels = obs_space.low.shape[2]
+
+        def lecun_init(layer, gain=1):
+            if isinstance(layer, (nn.Conv2d, nn.Linear)):
+                pfrl.initializers.init_lecun_normal(layer.weight, gain)
+                nn.init.zeros_(layer.bias)
+            else:
+                pfrl.initializers.init_lecun_normal(layer.weight_ih_l0, gain)
+                pfrl.initializers.init_lecun_normal(layer.weight_hh_l0, gain)
+                nn.init.zeros_(layer.bias_ih_l0)
+                nn.init.zeros_(layer.bias_hh_l0)
+            return layer
+
+        self.feature_extractor = torch.nn.Sequential(
+            lecun_init(nn.Conv2d(obs_n_channels, 16, 8, stride=4)),
+            nn.ReLU(),
+            lecun_init(nn.Conv2d(16, 32, 4, stride=2)),
+            nn.ReLU(),
+            lecun_init(nn.Conv2d(32, 32, 3, stride=1)),
+            nn.ReLU(),
+            nn.Flatten(),
+            lecun_init(nn.Linear(512, 512)),
+            nn.ReLU(),
+        )
+
+    def forward(self, obs):
+        x = obs / 255.0  # scale to 0-1
+        x = x.permute(0, 3, 1, 2)  # NHWC => NCHW
+        return self.feature_extractor(x)
 
     def save_to_file(self, model_path):
         torch.save(self.state_dict(), model_path)
