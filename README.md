@@ -29,5 +29,15 @@ python train_procgen.py --env-name=coinrun \
     --exp-name=trial01
 ```
 
+## Rendering
+
+To render a trained agent, run the following command:
+```shell
+python render.py --num-envs=1 \
+    --model-file "/full/path/to/model_you_want.pt"
+```
+Other arguments do not need to be the same as were used during training. 
+
+
 ## Disclaimer
 This is not an official Google product.
