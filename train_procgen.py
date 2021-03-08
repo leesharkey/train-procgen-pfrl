@@ -49,9 +49,6 @@ def parse_args():
     parser.add_argument('--save-interval', type=int, default=100)
 
     configs = parser.parse_args()
-    if configs.gpu == -1:
-        configs.gpu = None # run on CPU
-
     return configs
 
 

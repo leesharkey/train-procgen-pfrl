@@ -42,9 +42,6 @@ def parse_args():
     parser.add_argument('--save-interval', type=int, default=100)
 
     configs = parser.parse_args()
-    if configs.gpu == -1:
-        configs.gpu = None # run on CPU
-
     return configs
 
 def get_render_func(venv):
@@ -102,7 +99,12 @@ agent = PPO(
         max_grad_norm=configs.max_grad_norm,
     )
 
-agent.model.load_from_file(configs.model_file)
+
+if configs.gpu >= 0:
+    device = torch.device(f"cuda:{configs.gpu}")
+else:
+    device = torch.device('cpu')
+agent.model.load_from_file(configs.model_file, device=device)
 
 
 steps = np.zeros(configs.num_envs, dtype=int)
@@ -125,6 +127,3 @@ while True:
             batch_done=done,
             batch_reset=reset
         )
-
-
-
