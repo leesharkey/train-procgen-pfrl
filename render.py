@@ -1,7 +1,7 @@
 import torch
 import argparse
 from collections import deque
-from policies import ImpalaCNN
+from policies import ImpalaCNN, CNNRecurrent
 from procgen import ProcgenGym3Env
 from ppo import PPO
 import numpy as np
@@ -39,7 +39,8 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--nepochs', type=int, default=3)
     parser.add_argument('--max-steps', type=int, default=25_000_000)
-    parser.add_argument('--save-interval', type=int, default=100)
+    parser.add_argument('--recurrent-policy', type=int, default=0)
+    # parser.add_argument('--save-interval', type=int, default=100)
 
     configs = parser.parse_args()
     if configs.gpu == -1:
@@ -80,11 +81,17 @@ def create_venv_render(config, is_valid=False):
 configs = parse_args()
 
 venv = create_venv_render(configs, is_valid=True)
-
-policy = ImpalaCNN(
+if configs.recurrent_policy:
+    policy = CNNRecurrent(
+        obs_space=venv.observation_space,
+        act_space=venv.action_space,
+    )
+else:
+    policy = ImpalaCNN(
         obs_space=venv.observation_space,
         num_outputs=venv.action_space.n,
     )
+
 optimizer = torch.optim.Adam(policy.parameters(), lr=configs.lr, eps=1e-5)
 agent = PPO(
         model=policy,
