@@ -5,7 +5,8 @@ from policies import ImpalaCNN, CNNRecurrent
 from procgen import ProcgenGym3Env
 from ppo import PPO
 import numpy as np
-from gym3 import ViewerWrapper, ExtractDictObWrapper, ToBaselinesVecEnv
+from gym3 import ViewerWrapper, ExtractDictObWrapper, ToBaselinesVecEnv,\
+VideoRecorderWrapper
 from vec_env import VecExtractDictObs, VecMonitor, VecNormalize
 
 def parse_args():
@@ -44,6 +45,7 @@ def parse_args():
 
     # render parameters
     parser.add_argument('--tps', type=int, default=15, help="env fps")
+    parser.add_argument('--vid-dir', type=str, default=None)
 
     configs = parser.parse_args()
     if configs.gpu == -1:
@@ -62,6 +64,9 @@ def create_venv_render(config, is_valid=False):
         render_mode="rgb_array"
     )
     venv = ViewerWrapper(venv, tps=config.tps, info_key="rgb")
+    if config.vid_dir is not None:
+        venv = VideoRecorderWrapper(venv, directory=config.vid_dir,
+                                    info_key="rgb", fps=config.tps)
     venv = ToBaselinesVecEnv(venv)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
