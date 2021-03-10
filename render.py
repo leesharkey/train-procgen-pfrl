@@ -17,7 +17,7 @@ def parse_args():
         '--distribution-mode', type=str, default='easy',
         choices=['easy', 'hard', 'exploration', 'memory', 'extreme'])
     parser.add_argument('--env-name', type=str, default='starpilot')
-    parser.add_argument('--num-envs', type=int, default=64)
+    parser.add_argument('--num-envs', type=int, default=1)
     parser.add_argument('--num-levels', type=int, default=0)
     parser.add_argument('--start-level', type=int, default=0)
     parser.add_argument('--num-threads', type=int, default=4)
@@ -42,22 +42,14 @@ def parse_args():
     parser.add_argument('--recurrent-policy', type=int, default=0)
     # parser.add_argument('--save-interval', type=int, default=100)
 
+    # render parameters
+    parser.add_argument('--tps', type=int, default=15, help="env fps")
+
     configs = parser.parse_args()
     if configs.gpu == -1:
         configs.gpu = None # run on CPU
 
     return configs
-
-def get_render_func(venv):
-    """Get a render function"""
-    if hasattr(venv, 'envs'):
-        return venv.envs[0].render
-    elif hasattr(venv, 'venv'):
-        return get_render_func(venv.venv)
-    elif hasattr(venv, 'env'):
-        return get_render_func(venv.env)
-
-    return None
 
 def create_venv_render(config, is_valid=False):
     venv = ProcgenGym3Env(
@@ -69,14 +61,11 @@ def create_venv_render(config, is_valid=False):
         num_threads=1,
         render_mode="rgb_array"
     )
-    #venv = ExtractDictObWrapper(venv, key="rgb")
-    venv = ViewerWrapper(venv, tps=15, info_key="rgb")
+    venv = ViewerWrapper(venv, tps=config.tps, info_key="rgb")
     venv = ToBaselinesVecEnv(venv)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     return VecNormalize(venv=venv, ob=False)
-
-
 
 configs = parse_args()
 
