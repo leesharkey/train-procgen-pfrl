@@ -107,7 +107,8 @@ agent = PPO(
         clip_eps=configs.clip_range,
         clip_eps_vf=configs.clip_range,
         max_grad_norm=configs.max_grad_norm,
-    )
+        recurrent=configs.recurrent_policy
+)
 
 agent.model.load_from_file(configs.model_file)
 
