@@ -133,6 +133,8 @@ while True:
         # agent.test_recurrent_states
         #
         # The observations are in obs.
+        #
+        # level seed is in infos[0]['level_seed']
 
         action = agent.batch_act(obs)
         obs, reward, done, infos = venv.step(action)

@@ -7,22 +7,27 @@ from pfrl.policies import SoftmaxCategoricalHead
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, channels):
+    def __init__(self, channels,
+                 actv=torch.relu,
+                 kernel_sizes=[3, 3],
+                 paddings=[1, 1]):
         super(ResidualBlock, self).__init__()
+
         self.conv0 = nn.Conv2d(in_channels=channels,
                                out_channels=channels,
-                               kernel_size=3,
-                               padding=1)
+                               kernel_size=kernel_sizes[0],
+                               padding=paddings[0])
         self.conv1 = nn.Conv2d(in_channels=channels,
                                out_channels=channels,
-                               kernel_size=3,
-                               padding=1)
+                               kernel_size=kernel_sizes[1],
+                               padding=paddings[0])
+        self.actv = actv
 
     def forward(self, x):
         inputs = x
-        x = torch.relu(x)
+        x = self.actv(x)
         x = self.conv0(x)
-        x = torch.relu(x)
+        x = self.actv(x)
         x = self.conv1(x)
         return x + inputs
 
