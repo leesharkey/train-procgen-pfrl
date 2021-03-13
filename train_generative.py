@@ -114,6 +114,43 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
             agent.model.save_to_file(model_path)
             logger.info('Model save to {}'.format(model_path))
 
+
+def get_fake_data(num_obs, act_space_size):
+    """
+    Notes from proposal doc:
+    Data:
+        K-sized minibatch where each element contains:
+            (J-1*observations from timestep T-J to T-1) and
+            initial recurrent states at timestep T-J
+            Action log probabilities (vector)
+            Action (integer)
+            Agent value function output (scalar)
+            Reward at time t (scalar)
+            Timestep (integer)
+            Episode number (integer)
+            ‘Done’ (boolean/integer)
+            Level seed (will help us reinstantiate the same levels later if we want to study them. 
+    Labels: 
+        Reconstruction part:
+            the observations (same as data)
+            The initial hidden states (same as data)
+        Prediction part:
+            k*(L*observations from timestep T to T+L))
+    ############################################################        
+    Args:        
+        num_obs: number of observations in our dataset.
+    """
+    actions, action_vals, reward, timestep, episode, done, lvl_seed = (
+        np.random.randn(num_obs), np.random.randn(num_obs), np.random.randn(num_obs),
+        np.random.randn(num_obs), np.random.randn(num_obs), np.random.randn(num_obs),
+        np.random.randn(num_obs),
+    )
+    obs = np.random.rand(64,64,3)
+    rec_state = np.random.rand(64,64,3)
+    act_log_probs = np.array([np.random.rand(act_space_size) for _ in range(num_obs)])
+
+    return actions, action_vals, reward, timestep, episode, done, lvl_seed, obs, rec_state, act_log_probs
+
 def run():
     configs = parse_args()
 
