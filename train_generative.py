@@ -115,7 +115,7 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
             logger.info('Model save to {}'.format(model_path))
 
 
-def get_fake_data(num_obs, act_space_size):
+def get_fake_data(num_obs, obs_size, act_space_size, batch_size):
     """
     Notes from proposal doc:
     Data:
@@ -136,20 +136,33 @@ def get_fake_data(num_obs, act_space_size):
             The initial hidden states (same as data)
         Prediction part:
             k*(L*observations from timestep T to T+L))
-    ############################################################        
-    Args:        
-        num_obs: number of observations in our dataset.
+    ############################################################
+    Args:
+        num_obs: total number of observations in dataset
+        obs_size: size of each observation (I think for coinrun we will use 64x64x3?)
+        act_space_size: number of actions available (15 for coinrun?)
+        batch_size: size of each batch
+    Returns:
+        batches of data of size batch_size
     """
-    actions, action_vals, reward, timestep, episode, done, lvl_seed = (
-        np.random.randn(num_obs), np.random.randn(num_obs), np.random.randn(num_obs),
-        np.random.randn(num_obs), np.random.randn(num_obs), np.random.randn(num_obs),
-        np.random.randn(num_obs),
-    )
-    obs = np.random.rand(64,64,3)
-    rec_state = np.random.rand(64,64,3)
-    act_log_probs = np.array([np.random.rand(act_space_size) for _ in range(num_obs)])
-
-    return actions, action_vals, reward, timestep, episode, done, lvl_seed, obs, rec_state, act_log_probs
+    num_batches = num_obs // batch_size
+    data = []
+    for batch in range(num_batches):
+        actions, action_vals, reward, timestep, episode, done, lvl_seed = (
+            np.random.randn(batch_size), np.random.randn(batch_size), np.random.randn(batch_size),
+            np.random.randn(batch_size), np.random.randn(batch_size), np.random.randn(batch_size),
+            np.random.randn(batch_size),
+        )
+        obs = np.array([np.random.rand(*obs_size) for _ in range(batch_size)])
+        rec_state = np.array([np.random.rand(*obs_size) for _ in range(batch_size)])
+        action_log_probs = np.array([np.random.rand(act_space_size) for _ in range(batch_size)])
+        # Since enumerating trainloader returns batch_idx, (data,_), we make this a tuple.
+        data.append(({
+            'actions': actions, 'action_vals': action_vals, 'reward': reward, 'timestep': timestep,
+            'episode': episode, 'done': done, 'lvl_seed': lvl_seed, 'obs': obs, 'rec_state': rec_state,
+            'action_log_probs': action_log_probs
+        }, None))
+    return data
 
 def run():
     configs = parse_args()
@@ -196,6 +209,7 @@ def run():
 
     # Set up dataset
     train_loader = None
+    train_loader = get_fake_data(100, (64,64,3), 2, 10)
     # train_loader = torch.utils.data.DataLoader(
     #     datasets.MNIST('../data', train=True, download=True,
     #                    transform=transforms.ToTensor()),
@@ -216,3 +230,7 @@ def run():
             sample = gen_model.decode(sample).cpu()
             save_image(sample.view(64, 1, 28, 28),
                        'results/sample_' + str(epoch) + '.png')
+
+if __name__ == "__main__":
+    run()
+    # train_loader = get_fake_data(10, (2,2,1), 2, 2)
