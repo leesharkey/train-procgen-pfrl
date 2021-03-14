@@ -1,3 +1,6 @@
+# https://github.com/aserdega/convlstmgru/blob/master/convgru.py
+# https://github.com/ajbrock/BigGAN-PyTorch/blob/98459431a5d618d644d54cd1e9fceb1e5045648d/layers.py
+
 import torch
 import torch.nn as nn
 from policies import ResidualBlock
@@ -16,68 +19,101 @@ from torch.nn import Parameter as P
 
 class AssimilatorResidualBlock(nn.Module):
     def __init__(self, channels,
+                 vec_size,
                  actv=torch.relu,
-                 kernel_sizes=[3, 3],
-                 paddings=[1, 1],
-                 action_dim=16):
+                 kernel_sizes=[1, 3],
+                 paddings=[1, 1]):
         super(AssimilatorResidualBlock, self).__init__()
 
-        self.conv0 = nn.Conv2d(in_channels=channels+action_dim,
+        # Usually a 1x1 conv (see default args)
+        self.conv0 = nn.Conv2d(in_channels=channels+vec_size,
                                out_channels=channels,
                                kernel_size=kernel_sizes[0],
                                padding=paddings[0])
-        self.conv1 = nn.Conv2d(in_channels=channels+action_dim,
+
+        # Usually a normal 2d conv
+        self.conv1 = nn.Conv2d(in_channels=channels,
                                out_channels=channels,
                                kernel_size=kernel_sizes[1],
-                               padding=paddings[0])
+                               padding=paddings[1])
         self.actv = actv
 
-    def forward(self, x):
+    def forward(self, x, vec):
         inputs = x
         x = self.actv(x)
+
+        # Concat vector along channel dim
+        vec_block = torch.stack([vec]*x.shape[1]*x.shape[2])
+        vec_block = vec_block.view(-1, x.shape[1], x.shape[2],
+                                   vec_block.shape[-1])
+        x = torch.cat([x, vec_block], dim=3)
+
+        # Continue as in normal residual block
         x = self.conv0(x)
         x = self.actv(x)
         x = self.conv1(x)
         return x + inputs
 
 class Attention(nn.Module):
-  def __init__(self, ch, which_conv=nn.Conv2d, name='attention'):
-    super(Attention, self).__init__()
-    
-    # Channel multiplier
-    self.ch = ch
-    self.which_conv = which_conv
-    self.theta = self.which_conv(self.ch, self.ch // 8, kernel_size=1, 
-                                 padding=0, bias=False)
-    self.phi = self.which_conv(self.ch, self.ch // 8, kernel_size=1, 
-                               padding=0, bias=False)
-    self.g = self.which_conv(self.ch, self.ch // 2, kernel_size=1, 
-                             padding=0, bias=False)
-    self.o = self.which_conv(self.ch // 2, self.ch, kernel_size=1, 
-                             padding=0, bias=False)
-    
-    # Learnable gain parameter
-    self.gamma = P(torch.tensor(0.), requires_grad=True)
-  def forward(self, x, y=None):
-    
-    # Apply convs
-    theta = self.theta(x)
-    phi = F.max_pool2d(self.phi(x), [2,2])
-    g = F.max_pool2d(self.g(x), [2,2])
-    
-    # Perform reshapes
-    theta = theta.view(-1, self. ch // 8, x.shape[2] * x.shape[3])
-    phi = phi.view(-1, self. ch // 8, x.shape[2] * x.shape[3] // 4)
-    g = g.view(-1, self. ch // 2, x.shape[2] * x.shape[3] // 4)
-    
-    # Matmul and softmax to get attention maps
-    beta = F.softmax(torch.bmm(theta.transpose(1, 2), phi), -1)
-    
-    # Attention map times g path
-    o = self.o(torch.bmm(g, beta.transpose(1,2)).view(-1, self.ch // 2, 
-                                                      x.shape[2], x.shape[3]))
-    return self.gamma * o + x
+    """Applies self attention
 
+        Flattens a convolutional network output on the channel dimension
+        then applies self-attention.
+    """
+    def __init__(self, ch, which_conv=nn.Conv2d, name='attention'):
+        super(Attention, self).__init__()
+
+        # Channel multiplier
+        self.ch = ch
+        self.which_conv = which_conv
+        self.theta = self.which_conv(self.ch, self.ch // 8, kernel_size=1,
+                                     padding=0, bias=False)
+        self.phi = self.which_conv(self.ch, self.ch // 8, kernel_size=1,
+                                   padding=0, bias=False)
+        self.g = self.which_conv(self.ch, self.ch // 2, kernel_size=1,
+                                 padding=0, bias=False)
+        self.o = self.which_conv(self.ch // 2, self.ch, kernel_size=1,
+                                 padding=0, bias=False)
+
+        # Learnable gain parameter
+        self.gamma = P(torch.tensor(0.), requires_grad=True)
+    def forward(self, x, y=None):
+
+        # Apply convs
+        theta = self.theta(x)
+        phi = F.max_pool2d(self.phi(x), [2,2])
+        g = F.max_pool2d(self.g(x), [2,2])
+
+        # Perform reshapes
+        theta = theta.view(-1, self. ch // 8, x.shape[2] * x.shape[3])
+        phi = phi.view(-1, self. ch // 8, x.shape[2] * x.shape[3] // 4)
+        g = g.view(-1, self. ch // 2, x.shape[2] * x.shape[3] // 4)
+
+        # Matmul and softmax to get attention maps
+        beta = F.softmax(torch.bmm(theta.transpose(1, 2), phi), -1)
+
+        # Attention map times g path
+        o = self.o(torch.bmm(g, beta.transpose(1,2)).view(-1, self.ch // 2,
+                                                          x.shape[2], x.shape[3]))
+        return self.gamma * o + x
+
+
+class ResOneByOne(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 activation=None):
+        super(ResOneByOne, self).__init__()
+
+        self.in_channels, self.out_channels = in_channels, out_channels
+        self.activation = activation
+
+        # Conv layers
+        self.conv1x1 = nn.Conv2d(self.in_channels, self.out_channels,
+                               kernel_size=1)
+
+    def forward(self, x, y):
+        h = torch.cat([x, y], dim=3)
+        h = self.conv1x1(self.activation(h))
+        return h + x
 
 class ResBlockUp(nn.Module):
     def __init__(self, in_channels, out_channels,
@@ -93,6 +129,7 @@ class ResBlockUp(nn.Module):
         # Conv layers
         self.conv1 = self.which_conv(self.in_channels, self.out_channels)
         self.conv2 = self.which_conv(self.out_channels, self.out_channels)
+
         self.learnable_sc = in_channels != out_channels or upsample
         if self.learnable_sc: # learnable shortcut connection
             self.conv_sc = self.which_conv(in_channels, out_channels,

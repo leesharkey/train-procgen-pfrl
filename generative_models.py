@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from policies import ResidualBlock
+import layers as lyr
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,55 +15,48 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.nn import Parameter as P
 
-from sync_batchnorm import SynchronizedBatchNorm2d as SyncBN2d
 
 """Proposal for generative model:
 
     - An encoder network
-        - image -> residual (64)
-        - init hidden state added to the channel dim (64+128)
-        - all (image, init hidden, and resid output) into 1x1 conv (3+64+128 -> 128)
-        - layer norm
-        - Resblock down
-        - non-local layer
-        - layer norm
-        - Resblock down 256 (with dense inputs from above)
-        - layer norm
-        - Resblock down (256)
-        - layer norm
-        - split
-            - fc to mu (should have around 256 neurons)
-            - fc to sigma
+        - EncoderInputNetwork
+            - see diagram on tablet
+            - image -> residual (64)
+            - init hidden state added to the channel dim (64+128)
+            - Resblock down all (image, init hidden, and resid output) into 1x1 conv (3+64+128 -> 128) (32x32x128)
+            - layer norm
+            - non-local layer (with residual connection)
+            - layer norm
+            - ResOnebyOne (dense from all(?) previous)
+            - Resblockdown 
+            - layer norm
+        - EncoderRNN
+            - convGRU (8x8x256)
+            - layer norm after every step
+        - EncoderEmbedder (takes final convGRU output only)
+            - Resblock down (8x8x256) -> (4x4x256)
+            - layer norm
+            - split
+                - fc to mu (should have around 256 neurons)
+                - fc to sigma
     - A decoder network
         - Initializer networks
-            - inithidden&andActionNetwork
-                - residual block
+            - InitHiddenStateNetwork = TwoLayerPerceptron
+                - fc
                 - layer norm
-                - split
-                    - a)  
-                        - residual shrink block
-                        - FC to init hidden state
-                    - b)
-                        - residual shrink block
-                        - FC to prev action
+                - fc
+            - PrevActionNetwork = TwoLayerPerceptron
             - ConvGRU initializer
                 - This takes a guess at initializing the GRU so 
                   it doesn't start with 0-tensors. Informative initialization 
-                  like this should work better.            
-            
-        - StandardizerNet
-            - fc to large block (4x4x256)
-            - layernorm
-            - deconv growth residual block 
-            - layer norm
-            - deconv growth residual block 
-            - layer norm
-            - conv
-            - layer norm
-            now at standard block, which should be roughly 8x8x128
-        - UnrollerNet (needs nonlocal)
-            - AssimilatorResidualBlock (takes standard block and also noise vector and GRU hidden state and outputs standard block) 
-            - ConvGRU
+                  like this should work better.  
+                - outputs something the size of the 'standard block' for env
+                  unrolling         
+            - UnrollerNet
+                - AssimilatorResidualBlock (takes standard block and also noise vector and outputs standard block) 
+                - layer norm
+                - ResidualConv
+                - layer norm
         - Side decoders (take a standard block and produce predictions for obs and rew
             -reward decoder
                 - Residual shrink block
@@ -77,10 +71,10 @@ from sync_batchnorm import SynchronizedBatchNorm2d as SyncBN2d
                 - layer norm
                 - conv (but reduce channels) (3)
             
-            -  AssimilatorResidualBlock
-                - has-a:
-                    - AssimilatorBlock (1x1 conv to 2d conv)
-                    - residual connection between non vec inputs to AssimilatorBlock and its outputs
+    -  AssimilatorResidualBlock
+        - has-a:
+            - AssimilatorBlock (1x1 conv to 2d conv)
+            - residual connection between non vec inputs to AssimilatorBlock and its outputs
 """
 
 """We'll use a convGRU unroller and have a non local layer in the obs decoder
@@ -96,25 +90,265 @@ Classes we'll need:
 - ResidualBlock for upsample and downsample and constant (from BigGAN)
 - non-local layer (Attention)
 - AssimilatorResidualBlock
-- AssimilatorBlock
+- ResOnebyOne
 - Encoder
+    - EncoderInputNetwork
+    - EncoderRNN
+    - EncoderEmbedder
 - Decoder
     - InitializerNets
-    - Standardizer
-    - UnrollerNet
+        - IHANetwork
+        - EnvUnrollerInitializer
+    - EnvUnrollerNet
     - reward decoder
     - obs decoder
 """
 
 """
-Later, if that isn't producing good results, we can try an unroller that's
-just a resblock. The reason i didn't go for this for the main attempt is that
-I don't see why we wouldn't get vanishing or exploding gradients, and I 
-couldn't see any literature that did this. We can try something like:
-- UnrollerNet
-    - AssimilatorResidualBlock (takes standard block and also noise vector and outputs standard block) 
-    - layer norm
-    - ResidualConv
-    - layer norm
+
+    
+We can also explore whether or not it's worth learning the initialisation for
+the encoder convGRU. For now, we'll just explore zero and noise 
+initializations.
 """
 
+class EncoderNetwork(nn.Module):
+
+    def __init__(self):
+        super(EncoderNetwork, self).__init__()
+        self.input_network = EncoderInputNetwork(agent_hidden_size=256)
+        self.rnn = EncoderRNN()
+        self.embedder = EncoderEmbedder()
+
+    def forward(self, obs):
+        h = None
+        for i in enumerate(obs):
+            inp = self.input_network(obs[i])
+            h, _ = self.rnn(inp, h)
+        mu, sigma = self.embedder(h)
+        return mu, sigma
+
+
+class EncoderInputNetwork(nn.Module):
+
+    def __init__(self, agent_hidden_size=256):
+        super(EncoderInputNetwork, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3)
+        self.norm1 = nn.LayerNorm(128)
+        self.norm2 = nn.LayerNorm(128)
+        self.norm3 = nn.LayerNorm(128)
+        self.norm4 = nn.LayerNorm(128)
+        self.norm5 = nn.LayerNorm(256)
+        self.assimilateh0 = lyr.AssimilatorResidualBlock(128, agent_hidden_size)
+        self.resdown1 = lyr.ResBlockDown(128,128)
+        self.attention = lyr.Attention(128)
+        self.res1x1   = lyr.ResOneByOne(128+128*3, 256)
+        self.resdown2 = lyr.ResBlockDown(256,256)
+
+    def forward(self, ob, h0):
+        x  = ob
+        z  = self.conv1(x)
+        x1 = self.norm1(z)
+        z  = self.assimilateh0(x1, h0)
+        x2 = self.norm2(z)
+        z  = self.resdown1(x2)
+        x3 = self.norm3(z)
+        z  = self.attention(x3)
+        x4 = self.norm4(z)
+        x123 = torch.stack([x1, x2, x3], dim=1)
+        z = self.res1x1(x4, x123)
+        z  = self.resdown2(z)
+        z  = self.norm5(z)
+        return z
+
+class EncoderRNN(nn.Module):
+
+    def __init__(self):
+        super(EncoderRNN, self).__init__()
+        self.rnn = lyr.ConvGRU(input_size=[8,8], # [H,W]
+                               input_dim=256, # ch
+                               hidden_dim=256,
+                               kernel_size=3,
+                               num_layers=1)
+        self.norm = nn.LayerNorm(256)
+
+    def forward(self, inp, h=None):
+        h = self.rnn(inp, h)
+        h = self.norm(h)
+        return h
+
+
+class EncoderEmbedder(nn.Module):
+
+    def __init__(self):
+        super(EncoderEmbedder, self).__init__()
+        self.resdown = lyr.ResBlockDown(in_channels=256,
+                                        out_channels=256,
+                                        downsample=nn.AvgPool2d)
+        self.norm = nn.LayerNorm(256)
+        self.fc_mu    = nn.Linear(4*4*256, 256)
+        self.fc_sigma = nn.Linear(4*4*256, 256)
+
+    def forward(self, inp):
+        x = inp
+        x = self.resdown(x)
+        x = self.norm(x)
+        mu = self.fc_mu(x.view(x.shape[0], -1))
+        sigma = self.fc_sigma(x.view(x.shape[0], -1))
+        return mu, sigma
+
+class DecoderNetwork(nn.Module):
+
+    def __init__(self, agent, num_unroll_steps):
+        super(DecoderNetwork, self).__init__()
+        action_dim = agent.action_space.shape[0]
+        self.inithidden_network = TwoLayerPerceptron(
+            insize=256,
+            outsize=256)
+        self.prev_act_network = TwoLayerPerceptron(
+            insize=256,
+            outsize=15)
+        self.env_init_network = EnvStepperInitializer()
+        self.env_stepper = EnvStepper(agent)
+        self.reward_decoder = RewardDecoder()
+        self.obs_decoder = ObservationDecoder()
+        self.agent = agent
+        self.num_unroll_steps = num_unroll_steps
+
+    def forward(self, sample):
+
+        env_h = self.env_init_network(sample)
+        prev_act = self.prev_act_network(sample)
+        agent_h = self.inithidden_network(sample)
+
+        pred_obs = []
+        pred_rews = []
+        pred_agent_hs = []
+        pred_agent_logprobs = []
+
+        # TODO: Stuff to fix:
+        #  - log probs
+        #  - what does the agent actually return?
+        #  - storing obs, hs, etc in lists
+        #  Then move on to whole decoder-encoder and loss functions. 
+
+        for i in range(self.num_unroll_steps):
+            obs = self.obs_decoder(env_h)
+            env_h = self.env_stepper(sample, prev_act, prev_h=env_h)
+            agent_h, act = self.agent(agent_h)
+
+            # Add obs, agent_h, actlogprobs, and rew to lists
+
+
+            # Get ready for new step
+            prev_act = act
+
+        return pred_obs, pred_rews, pred_agent_hs, pred_agent_logprobs
+
+
+class TwoLayerPerceptron(nn.Module):
+
+    def __init__(self, insize=256, outsize=256):
+        super(TwoLayerPerceptron, self).__init__()
+        self.net = \
+            nn.Sequential(nn.Linear(insize, insize),
+                          nn.ReLU(),
+                          nn.LayerNorm(insize),
+                          nn.Linear(insize, outsize))
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class EnvStepperInitializer(nn.Module):
+
+    def __init__(self, vae_latent_size=256, out_ch=128, out_hw=8):
+        super(EnvStepperInitializer, self).__init__()
+
+        self.out_ch = out_ch
+        self.out_hw = out_hw
+        self.fc = nn.Sequential(nn.Linear(vae_latent_size,
+                                          (out_ch*out_hw*out_hw)/(2**2)))
+        self.resblockup = lyr.ResBlockUp(in_channels=128,
+                                         out_channels=128,
+                                         upsample=nn.UpsamplingNearest2d)
+        self.norm1 = nn.LayerNorm(128)
+        self.norm2 = nn.LayerNorm(128)
+        self.norm3 = nn.LayerNorm(128)
+        self.norm4 = nn.LayerNorm(128)
+
+        self.resblock1 = lyr.ResidualBlock(128)
+        self.resblock2 = lyr.ResidualBlock(128)
+        self.attention = lyr.Attention(128)
+
+
+    def forward(self, x):
+        x = self.fc(x)
+        x = self.resblockup(x.view(-1,self.out_ch,self.out_hw,self.out_hw))
+        x = self.norm1(x)
+        x = self.resblock1(x)
+        x = self.norm2(x)
+        x = self.attention(x)
+        x = self.norm3(x)
+        x = self.resblock2(x)
+        x = self.norm4(x)
+        return x
+
+class EnvStepper(nn.Module):
+
+    def __init__(self, agent, vae_latent_size=256):
+        super(EnvStepper, self).__init__()
+        action_dim = agent.action_space.shape[0]
+        self.assimilator = \
+            lyr.AssimilatorResidualBlock(128,
+                                         vec_size=(action_dim+vae_latent_size))
+        # standard block is 8x8x128
+        self.attention = lyr.Attention(128)
+        self.norm1 = nn.LayerNorm(128)
+        self.norm2 = nn.LayerNorm(128)
+        self.norm3 = nn.LayerNorm(128)
+        self.resblock = ResidualBlock(128)
+
+    def forward(self, vae_sample, prev_act, prev_h=None):
+        vec = torch.cat([vae_sample,prev_act], dim=1)
+        h = self.assimilator(prev_h, vec)
+        h = self.norm1(h)
+        h = self.attention(h)
+        h = self.norm2(h)
+        h = self.resblock(h)
+        h = self.norm3(h)
+        return h
+
+class ObservationDecoder(nn.Module):
+
+    def __init__(self, standard_actv_ch=128, standard_actv_hw=8):
+        super(ObservationDecoder, self).__init__()
+        ch0 = standard_actv_ch
+        hw0 = standard_actv_hw
+        self.resblockup1 = lyr.ResBlockUp(ch0,ch0//2)
+        self.resblockup2 = lyr.ResBlockUp(ch0//2,ch0//4)
+        self.resblockup3 = lyr.ResBlockUp(ch0//4,ch0//8)
+        self.resblockup4 = lyr.ResBlockUp(ch0,3)
+        self.attention = lyr.Attention(64)
+        self.net = nn.Sequential(self.resblockup1,
+                                 self.attention,
+                                 self.resblockup2,
+                                 self.resblockup3,
+                                 self.resblockup4)
+    def forward(self, x):
+        return self.net(x)
+
+
+class RewardDecoder(nn.Module):
+
+    def __init__(self, standard_actv_ch=128, standard_actv_hw=8):
+        super(RewardDecoder, self).__init__()
+        ch0 = standard_actv_ch
+        hw0 = standard_actv_hw
+        self.resblockup1 = lyr.ResBlockDown(ch0,ch0//4)
+        self.fc = nn.Linear(4*4*(ch0//4), 1)
+
+    def forward(self, x):
+        x = self.resblockup1(x)
+        x = self.fc(x.view(x.shape[0], -1))
+        return self.net(x)
