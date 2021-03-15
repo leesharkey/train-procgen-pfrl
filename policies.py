@@ -114,7 +114,7 @@ class CNNRecurrent(nn.Module):
         super(CNNRecurrent, self).__init__()
         print("Observation space", obs_space)
         print("Action space", act_space)
-        n_actions = act_space.n
+        self.n_actions = act_space.n
 
         def lecun_init(layer, gain=1):
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
@@ -138,7 +138,7 @@ class CNNRecurrent(nn.Module):
                 nn.GRU(num_layers=1, input_size=512, hidden_size=512)),
             pfrl.nn.Branched(
                 nn.Sequential(
-                    lecun_init(nn.Linear(512, n_actions), 1e-2),
+                    lecun_init(nn.Linear(512, self.n_actions), 1e-2),
                     SoftmaxCategoricalHead(),
                 ),
                 lecun_init(nn.Linear(512, 1)),
