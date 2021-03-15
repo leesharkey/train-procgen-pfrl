@@ -713,6 +713,10 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
                 )
             else:
                 action_distrib, batch_value = self.model(b_state)
+
+            # Make logits into attribute for generative model training:
+            self.train_action_distrib = action_distrib.logits
+
             batch_action = action_distrib.sample().cpu().numpy()
             self.entropy_record.extend(action_distrib.entropy().cpu().numpy())
             self.value_record.extend(batch_value.cpu().numpy())
