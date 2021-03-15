@@ -22,7 +22,7 @@ class AssimilatorResidualBlock(nn.Module):
                  vec_size,
                  actv=torch.relu,
                  kernel_sizes=[1, 3],
-                 paddings=[1, 1]):
+                 paddings=[0, 1]):
         super(AssimilatorResidualBlock, self).__init__()
 
         # Usually a 1x1 conv (see default args)
@@ -43,10 +43,9 @@ class AssimilatorResidualBlock(nn.Module):
         x = self.actv(x)
 
         # Concat vector along channel dim
-        vec_block = torch.stack([vec]*x.shape[1]*x.shape[2])
-        vec_block = vec_block.view(-1, x.shape[1], x.shape[2],
-                                   vec_block.shape[-1])
-        x = torch.cat([x, vec_block], dim=3)
+        vec_block = torch.stack([vec]*x.shape[2]*x.shape[3], dim=2)
+        vec_block = vec_block.view(vec.shape[0], vec.shape[-1], x.shape[2], x.shape[3])
+        x = torch.cat([x, vec_block], dim=1)
 
         # Continue as in normal residual block
         x = self.conv0(x)
@@ -100,7 +99,7 @@ class Attention(nn.Module):
 
 class ResOneByOne(nn.Module):
     def __init__(self, in_channels, out_channels,
-                 activation=None):
+                 activation=nn.ReLU()):
         super(ResOneByOne, self).__init__()
 
         self.in_channels, self.out_channels = in_channels, out_channels
@@ -108,10 +107,10 @@ class ResOneByOne(nn.Module):
 
         # Conv layers
         self.conv1x1 = nn.Conv2d(self.in_channels, self.out_channels,
-                               kernel_size=1)
+                               kernel_size=1, padding=0)
 
     def forward(self, x, y):
-        h = torch.cat([x, y], dim=3)
+        h = torch.cat([x, y], dim=1)
         h = self.conv1x1(self.activation(h))
         return h + x
 
@@ -125,10 +124,16 @@ class ResBlockUp(nn.Module):
         self.which_conv, self.which_norm = which_conv, which_norm
         self.activation = activation
         self.upsample = upsample
+        kern = 3
+        stride = 1
         
         # Conv layers
-        self.conv1 = self.which_conv(self.in_channels, self.out_channels)
-        self.conv2 = self.which_conv(self.out_channels, self.out_channels)
+        self.conv1 = self.which_conv(self.in_channels, self.out_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
+        self.conv2 = self.which_conv(self.out_channels, self.out_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
 
         self.learnable_sc = in_channels != out_channels or upsample
         if self.learnable_sc: # learnable shortcut connection
@@ -157,7 +162,7 @@ class ResBlockUp(nn.Module):
 class ResBlockDown(nn.Module):
     def __init__(self, in_channels, out_channels, which_conv=nn.Conv2d,
                  wide=True,
-                 preactivation=False, activation=None, downsample=None, ):
+                 preactivation=False, activation=nn.ReLU(), downsample=None, ):
         super(ResBlockDown, self).__init__()
         self.in_channels, self.out_channels = in_channels, out_channels
         # If using wide D (as in SA-GAN and BigGAN), change the channel pattern
@@ -166,10 +171,16 @@ class ResBlockDown(nn.Module):
         self.preactivation = preactivation
         self.activation = activation
         self.downsample = downsample
+        kern = 3
+        stride = 1
 
         # Conv layers
-        self.conv1 = self.which_conv(self.in_channels, self.hidden_channels)
-        self.conv2 = self.which_conv(self.hidden_channels, self.out_channels)
+        self.conv1 = self.which_conv(self.in_channels, self.hidden_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
+        self.conv2 = self.which_conv(self.hidden_channels, self.out_channels,
+                                     kernel_size=kern, stride=stride,
+                                     padding=1)
         self.learnable_sc = True if (
             in_channels != out_channels) or downsample else False
         if self.learnable_sc:
@@ -371,7 +382,7 @@ class ConvGRU(nn.Module):
         for c in self.cell_list:
             c.reset_parameters()
 
-    def get_init_states(self, batch_size, cuda=True):
+    def get_init_states(self, batch_size, cuda=False): #TODO revert to true
         init_states = []
         for i in range(self.num_layers):
             init_states.append(self.cell_list[i].init_hidden(batch_size, cuda))
