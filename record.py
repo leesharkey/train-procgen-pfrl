@@ -48,29 +48,29 @@ def parse_args():
 
     return configs
 
-def get_render_func(venv):
-    """Get a render function"""
-    if hasattr(venv, 'envs'):
-        return venv.envs[0].render
-    elif hasattr(venv, 'venv'):
-        return get_render_func(venv.venv)
-    elif hasattr(venv, 'env'):
-        return get_render_func(venv.env)
+# def get_render_func(venv):
+#     """Get a render function"""
+#     if hasattr(venv, 'envs'):
+#         return venv.envs[0].render
+#     elif hasattr(venv, 'venv'):
+#         return get_render_func(venv.venv)
+#     elif hasattr(venv, 'env'):
+#         return get_render_func(venv.env)
 
-    return None
+    # return None
 
-def create_venv_render(config, is_valid=False):
+def create_venv(config, is_valid=False):
     venv = ProcgenGym3Env(
         num=config.num_envs,
         env_name=config.env_name,
         num_levels=0 if is_valid else config.num_levels,
         start_level=0 if is_valid else config.start_level,
         distribution_mode=config.distribution_mode,
-        num_threads=1,
-        render_mode="rgb_array"
+        num_threads=1#, #in train_procgen num_threads = config.num_threads
+        # render_mode="rgb_array"
     )
     #venv = ExtractDictObWrapper(venv, key="rgb")
-    venv = ViewerWrapper(venv, tps=15, info_key="rgb")
+    # venv = ViewerWrapper(venv, tps=15, info_key="rgb")
     venv = ToBaselinesVecEnv(venv)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
@@ -80,7 +80,7 @@ def create_venv_render(config, is_valid=False):
 
 configs = parse_args()
 
-venv = create_venv_render(configs, is_valid=True)
+venv = create_venv(configs, is_valid=True) #when true uses unlimited levels and lowest seed is 0
 # TODO(Max/Joe) While recording, it's unneccessary (and much slower) to render
 #  at the same time. This should be changed to whatever kind of venvs are used
 #  during train/eval.
@@ -118,6 +118,7 @@ agent.model.load_from_file(configs.model_file)
 
 
 steps = np.zeros(configs.num_envs, dtype=int)
+ep_num = np.zeros(configs.num_envs, dtype=int)
 obs = venv.reset()
 
 env_max_steps=1000
@@ -125,6 +126,15 @@ env_max_steps=1000
 while True:
     with agent.eval_mode():
         assert not agent.training
+        print('recurrent states', agent.test_recurrent_states)
+        print('obs', obs)
+
+        #agent.test_recurrent_states
+        #obs
+        #action -- make sure this is action on the current obs
+        #reward
+        #done
+        #steps
 
         # We need to record the observations and the hidden states of the agent
         # (see research plan for details).
@@ -137,10 +147,17 @@ while True:
         # level seed is in infos[0]['level_seed']
 
         action = agent.batch_act(obs)
+        # print('action', action)
+        # print('env', venv.action_space)
         obs, reward, done, infos = venv.step(action)
+        print('infos', infos)
+        # print('level seed', infos[0]['level_seed'])
         steps += 1
+        print('done', done)
+        print('steps', steps)
         reset = steps == env_max_steps
         steps[done] = 0
+        #are steps resetting when env_max_steps is reached or only for dones?
 
         agent.batch_observe(
             batch_obs=obs,
@@ -151,3 +168,6 @@ while True:
 
 
 
+# Action log probabilities (vector)
+# Agent value function output (scalar)
+# Episode number (integer)
