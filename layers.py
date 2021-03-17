@@ -76,7 +76,7 @@ class Attention(nn.Module):
 
         # Learnable gain parameter
         self.gamma = P(torch.tensor(0.), requires_grad=True)
-    def forward(self, x, y=None):
+    def forward(self, x):
 
         # Apply convs
         theta = self.theta(x)
@@ -115,9 +115,9 @@ class ResOneByOne(nn.Module):
         return h + x
 
 class ResBlockUp(nn.Module):
-    def __init__(self, in_channels, out_channels,
+    def __init__(self, in_channels, out_channels, hw,
                  which_conv=nn.Conv2d, which_norm=nn.LayerNorm,
-                 activation=None, upsample=None):
+                 activation=nn.ReLU(), upsample=nn.UpsamplingNearest2d(scale_factor=2)):
         super(ResBlockUp, self).__init__()
 
         self.in_channels, self.out_channels = in_channels, out_channels
@@ -140,19 +140,19 @@ class ResBlockUp(nn.Module):
             self.conv_sc = self.which_conv(in_channels, out_channels,
                                            kernel_size=1, padding=0)
         # Normalization layers
-        self.normalize1 = self.which_norm(in_channels)
-        self.normalize2 = self.which_norm(out_channels)
+        self.normalize1 = self.which_norm([self.in_channels, hw, hw])
+        self.normalize2 = self.which_norm([self.out_channels, hw*2, hw*2])
         
         # upsample layers
         self.upsample = upsample
 
-    def forward(self, x, y):
-        h = self.activation(self.normalize1(x, y))
+    def forward(self, x):
+        h = self.activation(self.normalize1(x))
         if self.upsample:
             h = self.upsample(h)
             x = self.upsample(x)
         h = self.conv1(h)
-        h = self.activation(self.normalize2(h, y))
+        h = self.activation(self.normalize2(h))
         h = self.conv2(h)
         if self.learnable_sc:
             x = self.conv_sc(x)
