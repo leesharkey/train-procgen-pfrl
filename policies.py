@@ -135,13 +135,13 @@ class CNNRecurrent(nn.Module):
         self.model = pfrl.nn.RecurrentSequential(
             self.feature_extractor,
             lecun_init(
-                nn.GRU(num_layers=1, input_size=512, hidden_size=512)),
+                nn.GRU(num_layers=1, input_size=512, hidden_size=256)),
             pfrl.nn.Branched(
                 nn.Sequential(
-                    lecun_init(nn.Linear(512, self.n_actions), 1e-2),
+                    lecun_init(nn.Linear(256, self.n_actions), 1e-2),
                     SoftmaxCategoricalHead(),
                 ),
-                lecun_init(nn.Linear(512, 1)),
+                lecun_init(nn.Linear(256, 1)),
             ),
         )
 
