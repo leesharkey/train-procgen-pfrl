@@ -107,7 +107,12 @@ def rollout_one_step(agent, env, obs, steps, env_max_steps=1000):
 def train(config, agent, train_env, test_env, model_dir):
 
     if config.model_file is not None:
-        agent.model.load_from_file(config.model_file)
+        # Set device
+        if configs.gpu is not None and configs.gpu>=0 and torch.cuda.is_available():
+            device = 'cuda:0'
+        else:
+            device = 'cpu'
+        agent.model.load_from_file(config.model_file, device)
         logger.info('Loaded model from {}.'.format(config.model_file))
     else:
         logger.info('Train agent from scratch.')

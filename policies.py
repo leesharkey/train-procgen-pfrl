@@ -102,8 +102,8 @@ class ImpalaCNN(nn.Module):
     def save_to_file(self, model_path):
         torch.save(self.state_dict(), model_path)
 
-    def load_from_file(self, model_path):
-        self.load_state_dict(torch.load(model_path))
+    def load_from_file(self, model_path, device=None):
+        self.load_state_dict(torch.load(model_path, map_location=device))
 
 
 class CNNRecurrent(nn.Module):
@@ -151,8 +151,8 @@ class CNNRecurrent(nn.Module):
     def save_to_file(self, model_path):
         torch.save(self.state_dict(), model_path)
 
-    def load_from_file(self, model_path):
-        self.load_state_dict(torch.load(model_path))
+    def load_from_file(self, model_path, device=None):
+        self.load_state_dict(torch.load(model_path, map_location=device))
 
 class FeatureExtractorCNN(nn.Module):
     """."""
@@ -193,5 +193,5 @@ class FeatureExtractorCNN(nn.Module):
     def save_to_file(self, model_path):
         torch.save(self.state_dict(), model_path)
 
-    def load_from_file(self, model_path):
-        self.load_state_dict(torch.load(model_path))
+    def load_from_file(self, model_path, device=None):
+        self.load_state_dict(torch.load(model_path, map_location=device))
