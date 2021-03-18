@@ -675,15 +675,19 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
 
         with torch.no_grad(), pfrl.utils.evaluating(self.model):
             if self.recurrent:
-                (action_distrib, _), self.test_recurrent_states = one_step_forward(
-                    self.model, b_state, self.test_recurrent_states
-                )
+                (action_distrib, batch_value), self.test_recurrent_states = \
+                    one_step_forward(self.model, b_state,
+                                     self.test_recurrent_states)
             else:
-                action_distrib, _ = self.model(b_state)
+                action_distrib, batch_value = self.model(b_state)
             if self.act_deterministically:
                 action = mode_of_distribution(action_distrib).cpu().numpy()
             else:
                 action = action_distrib.sample().cpu().numpy()
+
+            # Make logits and value into attribute for recording:
+            self.eval_action_distrib = action_distrib.logits
+            self.eval_values = batch_value.squeeze()
 
         return action
 
@@ -715,8 +719,9 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
             else:
                 action_distrib, batch_value = self.model(b_state)
 
-            # Make logits into attribute for generative model training:
+            # Make logits and value into attribute for gen model training:
             self.train_action_distrib = action_distrib.logits
+            self.train_values = batch_value.squeeze()
 
             batch_action = action_distrib.sample().cpu().numpy()
             self.entropy_record.extend(action_distrib.entropy().cpu().numpy())
