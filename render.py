@@ -110,7 +110,7 @@ agent = PPO(
         recurrent=configs.recurrent_policy
 )
 
-agent.model.load_from_file(configs.model_file)
+agent.model.load_from_file(configs.model_file, agent.device)
 
 
 steps = np.zeros(configs.num_envs, dtype=int)

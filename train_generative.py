@@ -227,7 +227,7 @@ def run():
             obs_space=train_venv.observation_space,
             num_outputs=train_venv.action_space.n)
     del train_venv
-    policy.load_from_file(configs.agent_file)
+    policy.load_from_file(configs.agent_file, device)
     logger.info('Loaded model from {}.'.format(configs.agent_file))
     agent = PPO(
         model=policy,
@@ -275,7 +275,7 @@ def run():
     gen_model = gen_model.to(device)
 
     if configs.model_file is not None:
-        gen_model.load_from_file(configs.model_file)
+        gen_model.load_from_file(configs.model_file, device)
         logger.info('Loaded model from {}.'.format(configs.model_file))
     else:
         logger.info('Train agent from scratch.')
