@@ -18,6 +18,8 @@ import torch.nn.functional as F
 from torch.nn import Parameter as P
 
 class AssimilatorResidualBlock(nn.Module):
+    """Assimilates a 1d tensor into a 3d tensor so it can be used by
+    convolutional networks."""
     def __init__(self, channels,
                  vec_size,
                  actv=torch.relu,
@@ -57,7 +59,7 @@ class Attention(nn.Module):
     """Applies self attention
 
         Flattens a convolutional network output on the channel dimension
-        then applies self-attention.
+        then applies self-attention. This serves as a non-local layer.
     """
     def __init__(self, ch, which_conv=nn.Conv2d, name='attention'):
         super(Attention, self).__init__()
@@ -98,6 +100,15 @@ class Attention(nn.Module):
 
 
 class ResOneByOne(nn.Module):
+    """Connects two 3d tensors using a 1x1 convnet with residual connections
+
+    Only input x has residual connections. Thanks to this residual connction,
+    this module is essentially for modifying x using (x,y). Similar to the
+    AssimilatorResidualBlock, it can be used to assimilate y into x, but
+    in ResOneByOne both inputs are 3d tensors, whereas in
+    AssimilatorResidualBlock only x is 3d tensors.
+
+    """
     def __init__(self, in_channels, out_channels,
                  activation=nn.ReLU()):
         super(ResOneByOne, self).__init__()
@@ -115,6 +126,11 @@ class ResOneByOne(nn.Module):
         return h + x
 
 class ResBlockUp(nn.Module):
+    """A Residual Block with optional upsampling.
+
+    Adapted from [BigGAN](https://github.com/ajbrock/BigGAN-PyTorch/blob/98459431a5d618d644d54cd1e9fceb1e5045648d/layers.py ) (Brock et al. 2018)
+
+    """
     def __init__(self, in_channels, out_channels, hw,
                  which_conv=nn.Conv2d, which_norm=nn.LayerNorm,
                  activation=nn.ReLU(), upsample=nn.UpsamplingNearest2d(scale_factor=2)):
@@ -160,6 +176,11 @@ class ResBlockUp(nn.Module):
 
 
 class ResBlockDown(nn.Module):
+    """A Residual Block with optional downsampling.
+
+    Adapted from [BigGAN](https://github.com/ajbrock/BigGAN-PyTorch/blob/98459431a5d618d644d54cd1e9fceb1e5045648d/layers.py ) (Brock et al. 2018)
+
+    """
     def __init__(self, in_channels, out_channels, which_conv=nn.Conv2d,
                  wide=True,
                  preactivation=False, activation=nn.ReLU(), downsample=None, ):
@@ -217,26 +238,25 @@ class ResBlockDown(nn.Module):
 
 
 ### Conv GRU after here:
-
-
-
 class ConvGRUCell(nn.Module):
+    """A Convolutional GRU network cell.
+
+    Adapted from [aserdga/convlstmgru](https://github.com/aserdega/convlstmgru/blob/master/convgru.py)
+
+    Parameters
+    ----------
+    input_size: (int, int)
+        Height and width of input tensor as (height, width).
+    input_dim: int
+        Number of channels of input tensor.
+    hidden_dim: int
+        Number of channels of hidden state.
+    kernel_size: (int, int)
+        Size of the convolutional kernel.
+    bias: bool
+        Whether or not to add the bias.
+    """
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias=True, activation=F.tanh, batchnorm=False):
-        """
-        Initialize ConvGRU cell.
-        Parameters
-        ----------
-        input_size: (int, int)
-            Height and width of input tensor as (height, width).
-        input_dim: int
-            Number of channels of input tensor.
-        hidden_dim: int
-            Number of channels of hidden state.
-        kernel_size: (int, int)
-            Size of the convolutional kernel.
-        bias: bool
-            Whether or not to add the bias.
-        """
         super(ConvGRUCell, self).__init__()
 
         self.height, self.width = input_size
@@ -304,6 +324,11 @@ class ConvGRUCell(nn.Module):
 
 
 class ConvGRU(nn.Module):
+    """A Convolutional GRU network.
+
+    Adapted from [aserdga/convlstmgru](https://github.com/aserdega/convlstmgru/blob/master/convgru.py)
+
+    """
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=True, bias=True, activation=F.tanh, batchnorm=False):
         super(ConvGRU, self).__init__()
 

@@ -160,10 +160,12 @@ class VAE(nn.Module):
         sample = (torch.randn(sigma.size()) * sigma) + mu
 
         # Decode
-        pred_obs, pred_rews, pred_agent_hs, pred_agent_logprobs = self.decoder(sample)
+        pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
+            self.decoder(sample)
 
         preds = {'obs': pred_obs,
                  'reward': pred_rews,
+                 'done': pred_dones,
                  'rec_h_state': pred_agent_hs,
                  'action_log_probs': pred_agent_logprobs}
 
@@ -431,6 +433,8 @@ class DecoderNetwork(nn.Module):
     def __init__(self, device, agent, num_unroll_steps):
         super(DecoderNetwork, self).__init__()
         self.action_dim = agent.model.n_actions
+
+        # Initializers
         self.inithidden_network = TwoLayerPerceptron(
             insize=256,
             outsize=256)
@@ -438,21 +442,29 @@ class DecoderNetwork(nn.Module):
             insize=256,
             outsize=self.action_dim)
         self.env_init_network = EnvStepperInitializer(device=device)
-        self.env_stepper = EnvStepper(agent)
+
+        # Stepper (the one that gets unrolled)
+        self.env_stepper      = EnvStepper(agent, env_h_ch=128, env_h_hw=8)
+
+        # Decoders (used at every timestep
         self.reward_decoder = RewardDecoder(device)
-        self.obs_decoder = ObservationDecoder(device)
+        self.done_decoder   = DoneDecoder(device)
+        self.obs_decoder    = ObservationDecoder(device)
         self.agent = agent
         self.num_unroll_steps = num_unroll_steps
 
     def forward(self, sample):
 
-        env_h = self.env_init_network(sample)
-        prev_act = self.prev_act_network(sample)
-        agent_h = self.inithidden_network(sample)
+        # Get initial inputs to the agent and EnvStepper (both recurrent)
+        env_h = self.env_init_network(sample)  # t=0
+        prev_act = self.prev_act_network(sample)  # t=-1
+        agent_h = self.inithidden_network(sample)  # t=0
         self.agent.train_recurrent_states = (agent_h.unsqueeze(0),)
 
+        # Unroll the agent and EnvStepper and collect the generated data
         pred_obs = []
         pred_rews = []
+        pred_dones = []
         pred_agent_hs = []
         pred_agent_logprobs = []
 
@@ -465,6 +477,10 @@ class DecoderNetwork(nn.Module):
             # Rewards
             rew = self.reward_decoder(env_h)
             pred_rews.append(rew)
+
+            # Dones
+            done = self.done_decoder(env_h)
+            pred_dones.append(done)
 
             # Step environment forward using current state and *previous* action
             env_h = self.env_stepper(sample, prev_act, prev_h=env_h)
@@ -483,16 +499,21 @@ class DecoderNetwork(nn.Module):
             act = torch.tensor(act)
             act = torch.nn.functional.one_hot(act, num_classes=self.action_dim)
             prev_act = act
-
             self.agent.train_prev_recurrent_states = None
 
-        return pred_obs, pred_rews, pred_agent_hs, pred_agent_logprobs
+        return pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs
 
 
 class TwoLayerPerceptron(nn.Module):
-    """#TODO.
+    """A two layer perceptron with layer norm and a linear output.
 
-    Description
+    It takes the VAE latent sample as input and outputs another vector.
+
+    This class is used for multiple purposes:
+      - In the prev_act_network, the output is a vector the size of the action
+       space, which is used as one of the initial inputs to the EnvStepper.
+      - In the inithidden_network, the output is a vector the size of the
+        agent's hidden state and initializes the agent.
 
     Note:
         Some notes
@@ -521,9 +542,12 @@ class TwoLayerPerceptron(nn.Module):
 
 
 class EnvStepperInitializer(nn.Module):
-    """#TODO.
+    """Initializes the EnvStepper
 
-    Description
+    The EnvStepper is recurrent and therefore needs an initial hidden state.
+    The EnvStepperInitializer generates an initial hidden state by taking the
+    VAE latent sample as input and outputting something the size of the
+    EnvStepper hidden state.
 
     Note:
         Some notes
@@ -539,13 +563,13 @@ class EnvStepperInitializer(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, device, vae_latent_size=256, out_ch=128, out_hw=8):
+    def __init__(self, device, vae_latent_size=256, env_h_ch=128, env_h_hw=8):
         super(EnvStepperInitializer, self).__init__()
 
-        self.out_ch = out_ch
-        self.out_hw = out_hw
+        self.env_h_ch = env_h_ch
+        self.env_h_hw = env_h_hw
         self.fc = nn.Linear(vae_latent_size,
-                            int((out_ch*out_hw*out_hw)/(2**2)))
+                            int((env_h_ch*env_h_hw*env_h_hw)/(2**2)))
         self.resblockup = lyr.ResBlockUp(in_channels=128,
                                          out_channels=128,
                                          hw=4)
@@ -558,10 +582,11 @@ class EnvStepperInitializer(nn.Module):
         self.resblock2 = lyr.ResidualBlock(128)
         self.attention = lyr.Attention(128)
 
-
     def forward(self, x):
         x = self.fc(x)
-        x = self.resblockup(x.view(x.shape[0],self.out_ch,self.out_hw//2,self.out_hw//2))
+        x = self.resblockup(x.view(x.shape[0],       self.env_h_ch,
+                                   self.env_h_hw//2, self.env_h_hw//2)
+                            )
         x = self.norm1(x)
         x = self.resblock1(x)
         x = self.norm2(x)
@@ -572,9 +597,17 @@ class EnvStepperInitializer(nn.Module):
         return x
 
 class EnvStepper(nn.Module):
-    """#TODO.
+    """A recurrent network that simulates the unrolling of the environment.
 
-    Description
+    The EnvStepper unrolls a latent representation of the environment through
+    time. From its hidden state is decoded several things at each timestep:
+      - The observation (by the ObservationDecoder), which is input to the
+        agent.
+      - The reward (by the RewardDecoder). It is trained to predict reward in
+        the expectation that reward-salient aspects of the environment will be
+        represented in the EnvStepper latent state.
+      - #TODO DoneDecoder
+      - #TODO ValueDecoder
 
     Note:
         Some notes
@@ -590,7 +623,7 @@ class EnvStepper(nn.Module):
         attr2 (:obj:`int`, optional): Description of `attr2`.
 
     """
-    def __init__(self, agent, vae_latent_size=256):
+    def __init__(self, agent, env_h_ch=128, env_h_hw=8, vae_latent_size=256):
         super(EnvStepper, self).__init__()
         action_dim = agent.model.n_actions
         self.assimilator = \
@@ -614,9 +647,14 @@ class EnvStepper(nn.Module):
         return h
 
 class ObservationDecoder(nn.Module):
-    """#TODO.
+    """Decodes the observation from the EnvStepper latent state.
 
-    Description
+    At every timestep, the ObservationDecoder takes the EnvStepper latent state
+    as input and outputs the observation (what the agent sees).
+
+    It uses multiple upsampling residual blocks and a nonlocal layer
+    (self-attention). It has a final tanh activation to ensure predicted pixel
+    values have the same range as real pixels.
 
     Note:
         Some notes
@@ -655,9 +693,13 @@ class ObservationDecoder(nn.Module):
 
 
 class RewardDecoder(nn.Module):
-    """#TODO.
+    """Decodes the current reward from the EnvStepper latent state.
 
-    Description
+    At every timestep, the RewardDecoder takes the EnvStepper latent state
+    as input and outputs the (predicted) reward for that timestep. The agent
+    doesn't see this reward directly. It is just used to train the VAE
+    in the hope that reward-salient aspects of the environment will be
+    represented in the EnvStepper latent state.
 
     Note:
         Some notes
@@ -685,5 +727,43 @@ class RewardDecoder(nn.Module):
         x = self.resblockdown(x)
         x = self.fc(x.view(x.shape[0], -1))
         return x
+
+class DoneDecoder(nn.Module):
+    """Decodes the 'Done' status from the EnvStepper latent state.
+
+    At every timestep, the DoneDecoder takes the EnvStepper latent state
+    as input and outputs the (predicted) 'Done' status for that timestep. This
+    indicates when the similator thinks the episode is over (e.g. if the agent
+    dies or completes the level).
+
+    It is identical to the RewardDecoder apart from the final sigmoid
+    activation, since we want to return a prediction for a boolean here.
+
+    Note:
+        Some notes
+
+    Args:
+        param1 (str): Description of `param1`.
+        param2 (:obj:`int`, optional): Description of `param2`. Multiple
+            lines are supported.
+        param3 (:obj:`list` of :obj:`str`): Description of `param3`.
+
+    Attributes:
+        attr1 (str): Description of `attr1`.
+        attr2 (:obj:`int`, optional): Description of `attr2`.
+
+    """
+    def __init__(self, device, env_h_ch=128, env_h_hw=8):
+        super(DoneDecoder, self).__init__()
+        ch0 = env_h_ch
+        hw0 = env_h_hw
+        self.resblockdown = lyr.ResBlockDown(ch0,ch0//4,
+                               downsample=nn.AvgPool2d(kernel_size=2))
+        self.fc = nn.Linear(4*4*(ch0//4), 1)
+
+    def forward(self, x):
+        x = self.resblockdown(x)
+        x = self.fc(x.view(x.shape[0], -1))
+        return torch.sigmoid(x)
 
 

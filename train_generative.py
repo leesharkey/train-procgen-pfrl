@@ -62,6 +62,7 @@ def loss_function(preds, labels, mu, logvar):
         - agent's recurrent hidden states
         - agent's logprobs
         - rewards
+        - 'done' status
 
         If this is insufficient to produce high quality samples, then we'll
         add the attentive mask described in Rupprecht et al. (2019). And if
@@ -74,7 +75,7 @@ def loss_function(preds, labels, mu, logvar):
     for key in preds.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key]
-        F.mse_loss(pred, label)
+        F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better
 
     mse = sum(mses)
 
