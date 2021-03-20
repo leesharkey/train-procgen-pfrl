@@ -135,7 +135,7 @@ class CNNRecurrent(nn.Module):
         self.model = pfrl.nn.RecurrentSequential(
             self.feature_extractor,
             lecun_init(
-                nn.GRU(num_layers=1, input_size=512, hidden_size=256)),
+                nn.GRU(num_layers=1, input_size=2048, hidden_size=256)),
             pfrl.nn.Branched(
                 nn.Sequential(
                     lecun_init(nn.Linear(256, self.n_actions), 1e-2),
@@ -160,35 +160,25 @@ class FeatureExtractorCNN(nn.Module):
     def __init__(self, obs_space):
 
         super(FeatureExtractorCNN, self).__init__()
-        obs_n_channels = obs_space.low.shape[2]
-
-        def lecun_init(layer, gain=1):
-            if isinstance(layer, (nn.Conv2d, nn.Linear)):
-                pfrl.initializers.init_lecun_normal(layer.weight, gain)
-                nn.init.zeros_(layer.bias)
-            else:
-                pfrl.initializers.init_lecun_normal(layer.weight_ih_l0, gain)
-                pfrl.initializers.init_lecun_normal(layer.weight_hh_l0, gain)
-                nn.init.zeros_(layer.bias_ih_l0)
-                nn.init.zeros_(layer.bias_hh_l0)
-            return layer
-
-        self.feature_extractor = torch.nn.Sequential(
-            lecun_init(nn.Conv2d(obs_n_channels, 16, 8, stride=4)),
-            nn.ReLU(),
-            lecun_init(nn.Conv2d(16, 32, 4, stride=2)),
-            nn.ReLU(),
-            lecun_init(nn.Conv2d(32, 32, 3, stride=1)),
-            nn.ReLU(),
-            nn.Flatten(),
-            lecun_init(nn.Linear(512, 512)),
-            nn.ReLU(),
-        )
+        # obs_n_channels = obs_space.low.shape[2]
+        h, w, c = obs_space.low.shape
+        shape = (c, h, w)
+        conv_seqs = []
+        for out_channels in [16, 32, 32]:
+            conv_seq = ConvSequence(shape, out_channels)
+            shape = conv_seq.get_output_shape()
+            conv_seqs.append(conv_seq)
+        self.conv_seqs = nn.ModuleList(conv_seqs)
 
     def forward(self, obs):
         x = obs / 255.0  # scale to 0-1
         x = x.permute(0, 3, 1, 2)  # NHWC => NCHW
-        return self.feature_extractor(x)
+        for conv_seq in self.conv_seqs:
+            x = conv_seq(x)
+        # x = self.feature_extractor(x)
+        x = torch.flatten(x, start_dim=1)
+        x = torch.relu(x)
+        return x
 
     def save_to_file(self, model_path):
         torch.save(self.state_dict(), model_path)
