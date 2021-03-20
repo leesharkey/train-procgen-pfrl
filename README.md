@@ -17,6 +17,11 @@ On a single V100 GPU, it takes about 3 hours to reproduce our results in one tas
 
 ![learning_curve](images/procgen_learning_curves.png)
 
+## Setup
+```shell
+pip install numpy torch torchvision gym procgen pfrl six
+```
+
 ## Reproduce the Results
 
 Run the following command to train a PPO agent in the `coinrun` environment.
