@@ -732,6 +732,53 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
 
         return batch_action
 
+    def batch_act_straightthroughestimator(self, batch_obs):
+        assert self.training
+        b_state = self.batch_states(batch_obs, self.device, self.phi)
+
+        if self.obs_normalizer:
+            b_state = self.obs_normalizer(b_state, update=False)
+
+        num_envs = len(batch_obs)
+        if self.batch_last_episode is None:
+            self._initialize_batch_variables(num_envs)
+        assert len(self.batch_last_episode) == num_envs
+        assert len(self.batch_last_state) == num_envs
+        assert len(self.batch_last_action) == num_envs
+
+        # action_distrib will be recomputed when computing gradients
+        with torch.no_grad(), pfrl.utils.evaluating(self.model):
+            if self.recurrent:
+                assert self.train_prev_recurrent_states is None
+                self.train_prev_recurrent_states = self.train_recurrent_states
+                (
+                    (action_distrib, batch_value),
+                    self.train_recurrent_states,
+                ) = one_step_forward(
+                    self.model, b_state, self.train_prev_recurrent_states
+                )
+            else:
+                action_distrib, batch_value = self.model(b_state)
+
+            # Make logits and value into attribute for gen model training:
+            self.train_action_distrib = action_distrib.logits
+            self.train_values = batch_value.squeeze()
+
+            # STE: uses onehot action in the forward pass but uses logits in
+            # the backward pass.
+            act_size = action_distrib.logits.shape[1]
+            act_1hot = torch.nn.functional.one_hot(
+                action_distrib.sample(), num_classes=act_size).to(self.device)
+            batch_action = action_distrib.logits + \
+                            (act_1hot - action_distrib.logits).detach()
+            self.entropy_record.extend(action_distrib.entropy().cpu().numpy())
+            self.value_record.extend(batch_value.cpu().numpy())
+
+        self.batch_last_state = list(batch_obs)
+        self.batch_last_action = list(batch_action)
+
+        return batch_action
+
     def _batch_observe_eval(self, batch_obs, batch_reward, batch_done, batch_reset):
         assert not self.training
         if self.recurrent:

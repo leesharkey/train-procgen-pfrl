@@ -56,7 +56,7 @@ def parse_args():
 
     return configs
 
-def loss_function(preds, labels, mu, logvar):
+def loss_function(preds, labels, mu, logvar, device):
     """ Calculates the difference between predicted and actual:
         - observation
         - agent's recurrent hidden states
@@ -74,8 +74,8 @@ def loss_function(preds, labels, mu, logvar):
     mses = []
     for key in preds.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
-        label = labels[key]
-        F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better
+        label = labels[key].to(device)
+        F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
 
     mse = sum(mses)
 
@@ -102,15 +102,17 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
     for batch_idx, (data, labels) in enumerate(train_loader):
 
         # Get input data for generative model
-        obs = torch.tensor(data['obs'], device=device).float()
-        agent_h0 = torch.tensor(data['rec_h_state'], device=device)[:,0,:].float()
+        obs = data['obs']#torch.tensor(data['obs'], device=device).float()
+        agent_h0 = data['rec_h_state'][:,0,:]#torch.tensor(data['rec_h_state'], device=device)[:,0,:].float()
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
         mu, logvar, preds = gen_model(obs, agent_h0)
-        loss = loss_function(preds, labels, mu, logvar)
+        loss = loss_function(preds, labels, mu, logvar, device)
         loss.backward()
         optimizer.step()
+        #TODO figure out why, on fake data, the first batch of the epoch
+        # achieves a lower loss much faster than later batches.
 
         # Logging and saving info
         train_info_buf.append(loss.item())
