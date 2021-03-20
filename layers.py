@@ -256,7 +256,7 @@ class ConvGRUCell(nn.Module):
     bias: bool
         Whether or not to add the bias.
     """
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias=True, activation=F.tanh, batchnorm=False):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, bias=True, activation=torch.tanh, batchnorm=False, device='cuda:0'):
         super(ConvGRUCell, self).__init__()
 
         self.height, self.width = input_size
@@ -268,6 +268,8 @@ class ConvGRUCell(nn.Module):
         self.bias        = bias
         self.activation  = activation
         self.batchnorm   = batchnorm
+
+        self.device = device
 
 
         self.conv_zr = nn.Conv2d(in_channels=self.input_dim + self.hidden_dim,
@@ -293,7 +295,7 @@ class ConvGRUCell(nn.Module):
     def forward(self, input, h_prev):
         combined = torch.cat((input, h_prev), dim=1)  # concatenate along channel axis
 
-        combined_conv = F.sigmoid(self.conv_zr(combined))
+        combined_conv = torch.sigmoid(self.conv_zr(combined))
 
         z, r = torch.split(combined_conv, self.hidden_dim, dim=1)
 
@@ -303,9 +305,9 @@ class ConvGRUCell(nn.Module):
 
         return h_cur
 
-    def init_hidden(self, batch_size, cuda=True):
+    def init_hidden(self, batch_size):
         state = torch.zeros(batch_size, self.hidden_dim, self.height, self.width)
-        if cuda:
+        if "cuda" in self.device:
             state = state.cuda()
         return state
 
@@ -329,7 +331,7 @@ class ConvGRU(nn.Module):
     Adapted from [aserdga/convlstmgru](https://github.com/aserdega/convlstmgru/blob/master/convgru.py)
 
     """
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=True, bias=True, activation=F.tanh, batchnorm=False):
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=True, bias=True, activation=torch.tanh, batchnorm=False, device='cuda:0'):
         super(ConvGRU, self).__init__()
 
         self._check_kernel_size_consistency(kernel_size)
@@ -361,7 +363,8 @@ class ConvGRU(nn.Module):
                                           kernel_size=self.kernel_size[i],
                                           bias=self.bias,
                                           activation=activation[i],
-                                          batchnorm=batchnorm))
+                                          batchnorm=batchnorm,
+                                          device=device))
 
         self.cell_list = nn.ModuleList(cell_list)
 
@@ -407,10 +410,10 @@ class ConvGRU(nn.Module):
         for c in self.cell_list:
             c.reset_parameters()
 
-    def get_init_states(self, batch_size, cuda=False): #TODO revert to true
+    def get_init_states(self, batch_size):
         init_states = []
         for i in range(self.num_layers):
-            init_states.append(self.cell_list[i].init_hidden(batch_size, cuda))
+            init_states.append(self.cell_list[i].init_hidden(batch_size))
         return init_states
 
     @staticmethod
