@@ -102,8 +102,8 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
     for batch_idx, (data, labels) in enumerate(train_loader):
 
         # Get input data for generative model
-        obs = data['obs']#torch.tensor(data['obs'], device=device).float()
-        agent_h0 = data['rec_h_state'][:,0,:]#torch.tensor(data['rec_h_state'], device=device)[:,0,:].float()
+        obs = data['obs'].to(device)#torch.tensor(data['obs'], device=device).float()
+        agent_h0 = data['rec_h_state'][:,0,:].to(device)#torch.tensor(data['rec_h_state'], device=device)[:,0,:].float()
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
@@ -230,6 +230,7 @@ def run():
             num_outputs=train_venv.action_space.n)
     del train_venv
     policy.load_from_file(configs.agent_file, device)
+    policy = policy.to(device)
     logger.info('Loaded model from {}.'.format(configs.agent_file))
     agent = PPO(
         model=policy,
