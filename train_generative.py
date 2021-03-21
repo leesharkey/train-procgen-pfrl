@@ -102,8 +102,8 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
     for batch_idx, (data, labels) in enumerate(train_loader):
 
         # Get input data for generative model
-        obs = data['obs'].to(device)#torch.tensor(data['obs'], device=device).float()
-        agent_h0 = data['rec_h_state'][:,0,:].to(device)#torch.tensor(data['rec_h_state'], device=device)[:,0,:].float()
+        obs = data['obs'].to(device)
+        agent_h0 = data['rec_h_state'][:,0,:].to(device)
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
