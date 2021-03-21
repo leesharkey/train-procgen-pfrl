@@ -765,10 +765,12 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
             self.train_values = batch_value.squeeze()
 
             # STE: uses onehot action in the forward pass but uses logits in
-            # the backward pass.
+            # the backward pass. Action is deterministic.
             act_size = action_distrib.logits.shape[1]
             act_1hot = torch.nn.functional.one_hot(
-                action_distrib.sample(), num_classes=act_size).to(self.device)
+                                        mode_of_distribution(action_distrib),
+                                        num_classes=act_size
+                                                  ).to(self.device)
             batch_action = action_distrib.logits + \
                             (act_1hot - action_distrib.logits).detach()
             self.entropy_record.extend(action_distrib.entropy().cpu().numpy())
