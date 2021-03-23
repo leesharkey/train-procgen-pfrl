@@ -7,6 +7,8 @@ from ppo import PPO
 import numpy as np
 from gym3 import ViewerWrapper, ExtractDictObWrapper, ToBaselinesVecEnv
 from vec_env import VecExtractDictObs, VecMonitor, VecNormalize
+import pandas as pd
+from torch.utils.data import Dataset
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -122,12 +124,19 @@ ep_num = np.zeros(configs.num_envs, dtype=int)
 obs = venv.reset()
 
 env_max_steps=1000
+episode_number = 0
+# reward = [0] #setting for the first iteration (iteration 0)
+
+column_names = ['episode', 'timestep', 'obs', 'reward', 'done', 'action', 'action_log_probs', 'agent_val_fx', 'init_recurrent_states', 'level_seed']
+data = pd.DataFrame(columns = column_names)
 
 while True:
     with agent.eval_mode():
         assert not agent.training
         print('recurrent states', agent.test_recurrent_states)
-        print('obs', obs)
+        # print('obs', obs)
+        # print('steps', steps)
+        # print('steps[0]', steps[0])
 
         #agent.test_recurrent_states
         #obs
@@ -147,17 +156,44 @@ while True:
         # level seed is in infos[0]['level_seed']
 
         action = agent.batch_act(obs)
+
+        print('obs', obs)
+
+        if steps > 0: 
+            data = data.append({
+                'episode': episode_number,
+                'level_seed': infos[0]['level_seed'], #doesn't exist on 0th iteration
+                'done': done, #doesn't exist on 0th iteration
+                'timestep': steps[0], 
+                'reward': reward[0],
+                'agent_val_fx': agent.eval_values, #doesn't exist on 0th iteration
+                'action': action[0],
+                'action_log_probs': agent.eval_action_distrib, #doesn't exist on 0th iteration
+                'init_recurrent_states': agent.test_recurrent_states, 
+                'obs': obs
+                }, ignore_index=True)
+        # According to the image in the research plan, time increments here. t <- t+1
         # print('action', action)
         # print('env', venv.action_space)
         obs, reward, done, infos = venv.step(action)
         print('infos', infos)
         # print('level seed', infos[0]['level_seed'])
         steps += 1
+        print('action distrib', agent.eval_action_distrib)
+        print('eval values', agent.eval_values)
         print('done', done)
         print('steps', steps)
         reset = steps == env_max_steps
         steps[done] = 0
+        if done[0] or reset:
+            episode_number += 1
         #are steps resetting when env_max_steps is reached or only for dones?
+
+        # self.agent.eval_values 
+        # self.agent.train_action_distrib
+        if steps % 10 == 0:
+            data.to_csv('data.csv', index=False)
+            print(data)
 
         agent.batch_observe(
             batch_obs=obs,
@@ -167,7 +203,36 @@ while True:
         )
 
 
+class CoinrunDataset(Dataset):
+    """Coinrun dataset."""
+
+    def __init__(self, csv_file):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+        """
+        self.coinrun_frame = pd.read_csv(csv_file)
+
+    def __len__(self):
+        return len(self.coinrun_frame)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        # img_name = os.path.join(self.root_dir,
+        #                         self.landmarks_frame.iloc[idx, 0])
+        # image = io.imread(img_name)
+        # landmarks = self.landmarks_frame.iloc[idx, 1:]
+        # landmarks = np.array([landmarks])
+        # landmarks = landmarks.astype('float').reshape(-1, 2)
+        # sample = {'image': image, 'landmarks': landmarks}
+        # return sample
+
+        return self.coinrun_frame.iloc[idx, 1:]
+
 
 # Action log probabilities (vector)
 # Agent value function output (scalar)
 # Episode number (integer)
+# better timestep variable see note 
