@@ -82,6 +82,9 @@ def rollout_one_step(agent, env, obs, steps, env_max_steps=1000):
 
     new_obs, reward, done, infos = env.step(action)
 
+    #LEE
+    #reward = reward/10 - 0.5
+
     steps += 1
     reset = steps == env_max_steps
     steps[done] = 0
@@ -108,7 +111,7 @@ def train(config, agent, train_env, test_env, model_dir):
 
     if config.model_file is not None:
         # Set device
-        if configs.gpu is not None and configs.gpu>=0 and torch.cuda.is_available():
+        if config.gpu is not None and config.gpu>=0 and torch.cuda.is_available():
             device = 'cuda:0'
         else:
             device = 'cpu'
