@@ -43,6 +43,8 @@ def _add_advantage_and_value_target_to_episode(episode, gamma, lambd):
         adv = td_err + gamma * lambd * adv
         transition["adv"] = adv
         transition["v_teacher"] = adv + transition["v_pred"]
+        print("advcalcs", td_err, adv, transition["v_pred"])
+
 
 
 def _add_advantage_and_value_target_to_episodes(episodes, gamma, lambd):
@@ -573,7 +575,7 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
         flat_log_probs = flat_distribs.log_prob(flat_actions)
         flat_entropy = flat_distribs.entropy()
 
-        self.model.zero_grad()
+        # self.model.zero_grad()
         loss = self._lossfun(
             entropy=flat_entropy,
             vs_pred=flat_vs_pred,
@@ -584,10 +586,10 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
             vs_teacher=flat_vs_teacher,
         )
         loss.backward()
-        if self.max_grad_norm is not None:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-        self.optimizer.step()
-        self.n_updates += 1
+        # if self.max_grad_norm is not None:
+        #     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        # self.optimizer.step()
+        # self.n_updates += 1
 
     def _update_recurrent(self, dataset):
         """Update both the policy and the value function."""
@@ -608,12 +610,20 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
             mean_advs = None
             std_advs = None
 
+
+        # self.model.zero_grad() was elsewhere before i moved it here
+        self.model.zero_grad()
+
         for _ in range(self.epochs):
             random.shuffle(dataset)
             for minibatch in _yield_subset_of_sequences_with_fixed_number_of_items(
                 dataset, self.minibatch_size
             ):
                 self._update_once_recurrent(minibatch, mean_advs, std_advs)
+        if self.max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        self.optimizer.step()
+        self.n_updates += 1
 
     def _lossfun(
         self, entropy, vs_pred, log_probs, vs_pred_old, log_probs_old, advs, vs_teacher
@@ -718,7 +728,7 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
                 )
             else:
                 action_distrib, batch_value = self.model(b_state)
-
+            # print(batch_value)
             # Make logits and value into attribute for gen model training:
             self.train_action_distrib = action_distrib.logits
             self.train_values = batch_value.squeeze()
