@@ -5,7 +5,7 @@ from policies import ImpalaCNN
 from procgen import ProcgenGym3Env
 from ppo import PPO
 import numpy as np
-from gym3 import ViewerWrapper, ExtractDictObWrapper, ToBaselinesVecEnv
+from gym3 import ViewerWrapper, ExtractDictObWrapper, ToBaselinesVecEnv, VideoRecorderWrapper
 from vec_env import VecExtractDictObs, VecMonitor, VecNormalize
 
 def parse_args():
@@ -17,7 +17,7 @@ def parse_args():
         '--distribution-mode', type=str, default='easy',
         choices=['easy', 'hard', 'exploration', 'memory', 'extreme'])
     parser.add_argument('--env-name', type=str, default='starpilot')
-    parser.add_argument('--num-envs', type=int, default=64)
+    parser.add_argument('--num-envs', type=int, default=1)
     parser.add_argument('--num-levels', type=int, default=0)
     parser.add_argument('--start-level', type=int, default=0)
     parser.add_argument('--num-threads', type=int, default=4)
