@@ -154,6 +154,7 @@ class CNNRecurrent(nn.Module):
     def load_from_file(self, model_path, device=None):
         self.load_state_dict(torch.load(model_path, map_location=device))
 
+
 class FeatureExtractorCNN(nn.Module):
     """."""
 
@@ -171,11 +172,10 @@ class FeatureExtractorCNN(nn.Module):
         self.conv_seqs = nn.ModuleList(conv_seqs)
 
     def forward(self, obs):
-        x = obs / 255.0  # scale to 0-1
+        x = (obs / 255.0)  # scale to 0-1
         x = x.permute(0, 3, 1, 2)  # NHWC => NCHW
         for conv_seq in self.conv_seqs:
             x = conv_seq(x)
-        # x = self.feature_extractor(x)
         x = torch.flatten(x, start_dim=1)
         x = torch.relu(x)
         return x
