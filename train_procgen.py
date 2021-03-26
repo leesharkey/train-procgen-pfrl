@@ -83,7 +83,7 @@ def rollout_one_step(agent, env, obs, steps, env_max_steps=1000):
     new_obs, reward, done, infos = env.step(action)
 
     #LEE
-    #reward = reward/10 - 0.5
+    reward = (reward/10) - 0.05
 
     steps += 1
     reset = steps == env_max_steps
