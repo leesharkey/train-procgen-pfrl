@@ -43,8 +43,6 @@ def _add_advantage_and_value_target_to_episode(episode, gamma, lambd):
         adv = td_err + gamma * lambd * adv
         transition["adv"] = adv
         transition["v_teacher"] = adv + transition["v_pred"]
-        print("advcalcs", td_err, adv, transition["v_pred"])
-
 
 
 def _add_advantage_and_value_target_to_episodes(episodes, gamma, lambd):
@@ -728,7 +726,7 @@ class PPO(agent.AttributeSavingMixin, agent.BatchAgent):
                 )
             else:
                 action_distrib, batch_value = self.model(b_state)
-            # print(batch_value)
+
             # Make logits and value into attribute for gen model training:
             self.train_action_distrib = action_distrib.logits
             self.train_values = batch_value.squeeze()
