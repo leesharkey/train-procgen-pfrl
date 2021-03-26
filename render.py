@@ -41,19 +41,12 @@ def parse_args():
     parser.add_argument('--max-steps', type=int, default=25_000_000)
     parser.add_argument('--save-interval', type=int, default=100)
 
+    # render parameters
+    parser.add_argument('--tps', type=int, default=15, help="env fps")
+    parser.add_argument('--vid-dir', type=str, default=None)
+
     configs = parser.parse_args()
     return configs
-
-def get_render_func(venv):
-    """Get a render function"""
-    if hasattr(venv, 'envs'):
-        return venv.envs[0].render
-    elif hasattr(venv, 'venv'):
-        return get_render_func(venv.venv)
-    elif hasattr(venv, 'env'):
-        return get_render_func(venv.env)
-
-    return None
 
 def create_venv_render(config, is_valid=False):
     venv = ProcgenGym3Env(
@@ -65,8 +58,10 @@ def create_venv_render(config, is_valid=False):
         num_threads=1,
         render_mode="rgb_array"
     )
-    #venv = ExtractDictObWrapper(venv, key="rgb")
-    venv = ViewerWrapper(venv, tps=15, info_key="rgb")
+    venv = ViewerWrapper(venv, tps=config.tps, info_key="rgb")
+    if config.vid_dir is not None:
+        venv = VideoRecorderWrapper(venv, directory=config.vid_dir,
+                                    info_key="rgb", fps=config.tps)
     venv = ToBaselinesVecEnv(venv)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
