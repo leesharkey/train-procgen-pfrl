@@ -41,6 +41,7 @@ class AssimilatorResidualBlock(nn.Module):
         self.actv = actv
 
     def forward(self, x, vec):
+        """Note that input shape == output shape == (batch_size,channels,H,W)."""
         inputs = x
         x = self.actv(x)
 
@@ -377,9 +378,13 @@ class ConvGRU(nn.Module):
         input_tensor:
             5-D Tensor either of shape (t, b, c, h, w) or (b, t, c, h, w)
         hidden_state:
+            rnn hidden state (can be None)
         Returns
         -------
-        last_state_list, layer_output
+        last_state_list:
+            list of final hidden states for each layer
+        layer_output:
+            5-D Tensor either of shape (t, b, c, h, w) or (b, t, c, h, w)
         """
         cur_layer_input = torch.unbind(input, dim=int(self.batch_first))
 
@@ -387,7 +392,6 @@ class ConvGRU(nn.Module):
             hidden_state = self.get_init_states(cur_layer_input[0].size(0))
 
         seq_len = len(cur_layer_input)
-
         layer_output_list = []
         last_state_list   = []
 

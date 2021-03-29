@@ -3,3 +3,5 @@ gym
 procgen
 torch
 torchvision
+pfrl
+av

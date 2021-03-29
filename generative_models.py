@@ -139,7 +139,11 @@ class VAE(nn.Module):
                            num_unroll_steps=self.num_unroll_steps).to(device)
 
     def forward(self, obs, agent_h0):
-
+        """
+        Args:
+            obs (`tenosr`): observations tensor of shape (batch_size,num_input_images,Ch,H,W).
+            agent_h0 (`tensor`): agent's hidden state at each input timestep.
+        """
         # Ensure the number of images in the input sequence is the same as the
         # number of observations that we're _reconstructing_.
         assert obs.shape[1] == self.num_recon_obs
@@ -152,7 +156,6 @@ class VAE(nn.Module):
 
         # Reparametrisation trick
         sample = (torch.randn(sigma.size(), device=self.device) * sigma) + mu
-
         # Decode
         pred_obs, pred_rews, pred_dones, pred_agent_hs, pred_agent_logprobs = \
             self.decoder(sample)
@@ -200,11 +203,11 @@ class EncoderNetwork(nn.Module):
 
         obs_seq_len = obs.shape[1] # (B, *T*, Ch, H, W)
 
-        # Pass each image in the input input sequence into the encoder input
+        # Pass each image in the input sequence into the encoder input
         # network to get a sequence of latent representations (one per image)
         inps = []
         for i in range(obs_seq_len):
-            inps.append(self.input_network(obs[:,i,:], agent_h0))
+            inps.append(self.input_network(obs[:,i,:], agent_h0[:,i,:]))
         inps = torch.stack(inps, dim=1) # stack along time dimension
 
         # Pass sequence of latent representations
@@ -266,6 +269,11 @@ class EncoderInputNetwork(nn.Module):
         self.norm5 = nn.LayerNorm([256,8,8])
 
     def forward(self, ob, h0):
+        """
+        Args:
+            obs (`tenosr`): observation tensor of shape (batch_size,Ch,H,W).
+            agent_h0 (`tensor`): agent's hidden state.
+        """
         x  = ob
         z  = self.conv0(x)
         z  = self.resdown1(z)
@@ -390,7 +398,7 @@ class DecoderNetwork(nn.Module):
           converts it into an observation for that timestep.
         - A RewardDecoder, which does the same for the reward that agent
           received at that timestep.
-        - # TODO a DoneDecoder, which predicts whether the episode is done at
+        - A DoneDecoder, which predicts whether the episode is done at
           that timestep.
 
     Since both the agent and the EnvStepper are recurrent, they require inputs
@@ -468,7 +476,6 @@ class DecoderNetwork(nn.Module):
 
             # Moving forward in time: t <- t+1
             ## Store curr agent-hidden state
-
             pred_agent_hs.append(self.agent.train_recurrent_states[0].squeeze())
 
             ## Step the agent forward

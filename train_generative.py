@@ -68,14 +68,18 @@ def loss_function(preds, labels, mu, logvar, device):
         add the attentive mask described in Rupprecht et al. (2019). And if
         _that_ is still insufficient, then we'll look into adding a GAN
         discriminator and loss term.
-      """
+
+        TODO: Add scaling parameters to each output in order to normalize the loss (otherwise the
+        loss may be dominated by one particular output). These will have to be manually tweaked,
+        perhaps based on the output mean.
+    """
 
     # Mean Squared Error
     mses = []
     for key in preds.keys():
         pred  = torch.stack(preds[key], dim=1).squeeze()
         label = labels[key].to(device)
-        F.mse_loss(pred, label) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
+        mses.append(F.mse_loss(pred, label)) # TODO test whether MSE or MAbsE is better (I think the VQ-VAE2 paper suggested MAE was better)
 
     mse = sum(mses)
 
@@ -103,7 +107,7 @@ def train(epoch, configs, train_loader, gen_model, agent, logger, log_dir, devic
 
         # Get input data for generative model
         obs = data['obs'].to(device)
-        agent_h0 = data['rec_h_state'][:,0,:].to(device)
+        agent_h0 = data['rec_h_state'].to(device)
 
         # Forward and backward pass and upate generative model parameters
         optimizer.zero_grad()
@@ -296,6 +300,7 @@ def run():
                     sample = sample - torch.min(sample)
                     sample = sample/torch.max(sample) * 255
                     sample = sample.clone().detach().type(torch.uint8)
+                    os.makedir('results', exist_ok=True)
                     save_str = 'results/sample_' + str(epoch) + '_' + str(b) + '.mp4'
                     tvio.write_video(save_str, sample, fps=8)
             # TODO save target sequences and compare to predicted sequences
